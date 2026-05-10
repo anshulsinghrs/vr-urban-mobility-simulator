@@ -2,13 +2,6 @@
 
 An immersive browser-based XR mobility simulator for studying pedestrian and cyclist interactions in urban environments.
 
----
-
-## Preview
-
-<img width="100%" alt="preview" src="https://via.placeholder.com/1200x500.png?text=VR+Urban+Mobility+Simulator" />
-
----
 
 ## Features
 
