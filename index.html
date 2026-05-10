@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Urban Mobility Simulator — VR Research Environment</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #05070a;
+    --hud-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --hud-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --hud-fg: rgba(225, 240, 255, 0.92);
+    --hud-dim: rgba(160, 185, 205, 0.55);
+    --hud-line: rgba(120, 200, 230, 0.28);
+    --hud-cyan: #6cf2ff;
+    --hud-amber: #ffb050;
+    --hud-red: #ff5a5a;
+    --hud-green: #5af0a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg);
+    color: var(--hud-fg); font-family: var(--hud-sans); overflow: hidden;
+    -webkit-font-smoothing: antialiased; }
+  #scene { position: fixed; inset: 0; z-index: 0; }
+  #scene canvas { display: block; width: 100% !important; height: 100% !important; }
+
+  /* HUD root — sits on top of the canvas, never blocks pointer except for controls */
+  #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+  #hud .pe { pointer-events: auto; }
+
+  /* VR optic shape — soft binocular vignette using two radial gradients
+     plus a subtle outer fade. Suggests headset-through-lens feel without
+     the cartoony two-circle masking. */
+  .vr-vignette {
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    background:
+      radial-gradient(ellipse 75% 95% at 50% 50%, transparent 55%, rgba(0,0,0,.55) 78%, rgba(0,0,0,.92) 100%),
+      radial-gradient(circle at 50% 50%, transparent 62%, rgba(0,0,0,.0) 70%);
+    mix-blend-mode: multiply;
+  }
+  .vr-scanlines {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom, rgba(255,255,255,0) 0 2px, rgba(0,0,0,.04) 2px 3px);
+    opacity: .5; mix-blend-mode: multiply;
+  }
+  .vr-chroma {
+    position: fixed; inset: 0; z-index: 6; pointer-events: none;
+    box-shadow:
+      inset 0 0 120px 0 rgba(80, 200, 255, .04),
+      inset 0 0 240px 0 rgba(255, 140, 80, .03);
+  }
+
+  /* Recording dot */
+  .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--hud-red); box-shadow: 0 0 8px var(--hud-red);
+    animation: pulse 1.4s infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .4 } }
+
+  /* HUD panel base */
+  .panel {
+    position: fixed; padding: 10px 12px;
+    background: linear-gradient(180deg, rgba(8, 14, 22, .72), rgba(4, 8, 14, .58));
+    border: .5px solid var(--hud-line);
+    color: var(--hud-fg);
+    backdrop-filter: blur(6px) saturate(120%);
+    -webkit-backdrop-filter: blur(6px) saturate(120%);
+    border-radius: 2px;
+    font-family: var(--hud-mono);
+    font-size: 11px; line-height: 1.5;
+    letter-spacing: .02em;
+    text-shadow: 0 0 6px rgba(108, 242, 255, .25);
+  }
+  .panel::before {
+    content: ''; position: absolute; top: -1px; left: -1px; width: 8px; height: 8px;
+    border-top: 1.5px solid var(--hud-cyan); border-left: 1.5px solid var(--hud-cyan);
+  }
+  .panel::after {
+    content: ''; position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px;
+    border-bottom: 1.5px solid var(--hud-cyan); border-right: 1.5px solid var(--hud-cyan);
+  }
+
+  .panel .ttl {
+    color: var(--hud-cyan); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .15em; text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px; opacity: .85;
+  }
+  .panel .ttl .pill {
+    font-size: 8.5px; padding: 1px 5px; border: .5px solid var(--hud-line);
+    color: var(--hud-dim); letter-spacing: .1em;
+  }
+
+  .row { display: flex; justify-content: space-between; gap: 10px; }
+  .row + .row { margin-top: 3px; }
+  .lbl { color: var(--hud-dim); }
+  .val { color: var(--hud-fg); font-variant-numeric: tabular-nums; }
+  .val.amber { color: var(--hud-amber); }
+  .val.red { color: var(--hud-red); text-shadow: 0 0 8px rgba(255,90,90,.5); }
+  .val.green { color: var(--hud-green); }
+  .val.cyan { color: var(--hud-cyan); }
+
+  /* Bar / meter */
+  .meter { height: 3px; background: rgba(120,200,230,.12); position: relative; margin-top: 3px; }
+  .meter > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hud-cyan);
+    box-shadow: 0 0 6px var(--hud-cyan); }
+  .meter.amber > i { background: var(--hud-amber); box-shadow: 0 0 6px var(--hud-amber); }
+  .meter.red > i { background: var(--hud-red); box-shadow: 0 0 6px var(--hud-red); }
+
+  /* Bigger headline number */
+  .big { font-size: 22px; font-weight: 600; letter-spacing: -.01em;
+    line-height: 1; font-family: var(--hud-mono); }
+  .big .u { font-size: 10px; color: var(--hud-dim); margin-left: 4px;
+    font-weight: 400; letter-spacing: .1em; }
+
+  /* Reticle */
+  .reticle {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 22px; height: 22px; pointer-events: none; z-index: 6; opacity: .85;
+  }
+  .reticle::before, .reticle::after {
+    content: ''; position: absolute; background: var(--hud-cyan);
+    box-shadow: 0 0 4px var(--hud-cyan);
+  }
+  .reticle::before { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-.5px);
+    background: linear-gradient(to bottom, transparent 0%, transparent 30%, var(--hud-cyan) 30%, var(--hud-cyan) 38%, transparent 38%, transparent 62%, var(--hud-cyan) 62%, var(--hud-cyan) 70%, transparent 70%); }
+  .reticle::after  { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-.5px);
+    background: linear-gradient(to right, transparent 0%, transparent 30%, var(--hud-cyan) 30%, var(--hud-cyan) 38%, transparent 38%, transparent 62%, var(--hud-cyan) 62%, var(--hud-cyan) 70%, transparent 70%); }
+
+  /* Compass strip */
+  .compass {
+    position: fixed; left: 50%; top: 28px; transform: translateX(-50%);
+    width: 320px; height: 22px; overflow: hidden; pointer-events: none; z-index: 6;
+    border-top: .5px solid var(--hud-line); border-bottom: .5px solid var(--hud-line);
+    font-family: var(--hud-mono); font-size: 10px; color: var(--hud-fg);
+    mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
+  }
+  .compass .strip { position: absolute; top: 0; left: 0; height: 100%; display: flex;
+    align-items: center; will-change: transform; white-space: nowrap; }
+  .compass .tick { width: 20px; text-align: center; color: var(--hud-dim); flex: 0 0 20px; }
+  .compass .tick.major { color: var(--hud-cyan); font-weight: 600; }
+  .compass .needle {
+    position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
+    background: var(--hud-amber); box-shadow: 0 0 4px var(--hud-amber);
+  }
+
+  /* Minimap */
+  .minimap {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    width: 240px; height: 160px; pointer-events: none;
+  }
+
+  /* Audio waveform */
+  .audio-strip {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    width: 22px; height: 200px; display: flex; flex-direction: column;
+    align-items: center; gap: 4px; pointer-events: none;
+  }
+  .audio-strip canvas { width: 22px; height: 160px; opacity: .8; }
+  .audio-strip .lbl-v { writing-mode: vertical-rl; transform: rotate(180deg);
+    font-family: var(--hud-mono); font-size: 8.5px; letter-spacing: .25em;
+    color: var(--hud-dim); }
+
+  /* Toolbar bottom */
+  .toolbar {
+    position: fixed; left: 50%; top: 12px; transform: translateX(-50%);
+    z-index: 6; display: flex; gap: 0; pointer-events: auto;
+    font-family: var(--hud-mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--hud-dim);
+  }
+  .toolbar .seg { padding: 6px 14px; border: .5px solid var(--hud-line);
+    background: rgba(8, 14, 22, .55); margin-left: -.5px; cursor: default;
+    transition: all .15s; }
+  .toolbar .seg:hover { color: var(--hud-fg); }
+  .toolbar .seg.on { color: var(--hud-cyan);
+    background: rgba(108,242,255,.08); border-color: var(--hud-cyan); }
+
+  /* Subject avatar dot in scene */
+  .subject-dot { fill: var(--hud-cyan); }
+
+  /* Generic monoblock keys */
+  .kv { display: grid; grid-template-columns: max-content 1fr; column-gap: 10px; row-gap: 2px; }
+  .kv .k { color: var(--hud-dim); }
+  .kv .v { color: var(--hud-fg); font-variant-numeric: tabular-nums; text-align: right; }
+
+  /* Splash for first user gesture (audio gate) */
+  .splash {
+    position: fixed; inset: 0; z-index: 50; display: flex;
+    align-items: center; justify-content: center; flex-direction: column;
+    background: radial-gradient(ellipse at center, rgba(8,14,22,.55), rgba(0,0,0,.92));
+    color: var(--hud-fg); pointer-events: auto; cursor: pointer;
+    transition: opacity .6s ease;
+  }
+  .splash.hide { opacity: 0; pointer-events: none; }
+  .splash h1 { font-family: var(--hud-mono); font-size: 14px; font-weight: 500;
+    letter-spacing: .35em; text-transform: uppercase; color: var(--hud-cyan);
+    margin: 0 0 14px; }
+  .splash p { font-family: var(--hud-mono); font-size: 11px; color: var(--hud-dim);
+    letter-spacing: .15em; text-transform: uppercase; margin: 0; }
+  .splash .frame { padding: 60px 80px; border: .5px solid var(--hud-line);
+    position: relative; }
+  .splash .frame::before, .splash .frame::after {
+    content: ''; position: absolute; width: 18px; height: 18px;
+    border-color: var(--hud-cyan); }
+  .splash .frame::before { top: -1px; left: -1px;
+    border-top: 2px solid; border-left: 2px solid; }
+  .splash .frame::after { bottom: -1px; right: -1px;
+    border-bottom: 2px solid; border-right: 2px solid; }
+  .splash .blink { color: var(--hud-amber); animation: pulse 1.6s infinite; }
+
+  /* Conflict indicator flash */
+  .conflict-flash {
+    position: fixed; inset: 0; z-index: 4; pointer-events: none;
+    box-shadow: inset 0 0 0 0 rgba(255, 90, 90, 0);
+    transition: box-shadow .2s;
+  }
+  .conflict-flash.on {
+    box-shadow: inset 0 0 100px 20px rgba(255, 90, 90, .35);
+  }
+
+  .smaller { font-size: 9px; color: var(--hud-dim); letter-spacing: .15em; }
+</style>
+</head>
+<body style="background-color: rgb(232, 235, 240)">
+  <div id="scene" data-screen-label="01 First-person VR sim"></div>
+
+  <!-- Optical / VR overlays -->
+  <div class="vr-scanlines"></div>
+  <div class="vr-vignette"></div>
+  <div class="vr-chroma"></div>
+  <div class="conflict-flash" id="conflict-flash"></div>
+
+  <!-- HUD root — populated by hud.jsx -->
+  <div id="hud"></div>
+
+  <!-- Reticle, compass, minimap baked into base HTML so they always render -->
+  <div class="compass" id="compass">
+    <div class="strip" id="compass-strip"></div>
+    <div class="needle"></div>
+  </div>
+  <div class="reticle"></div>
+
+  <!-- Splash -->
+  <div class="splash" id="splash">
+    <div class="frame">
+      <h1>Urban Mobility Simulator</h1>
+      <p style="margin-bottom: 8px;">VR pedestrian &amp; cyclist behavior research</p>
+      <p class="smaller">Subject 024 · Trial 03 · Crosswalk protocol</p>
+      <p style="margin-top: 22px;"><span class="blink">▶</span>&nbsp;&nbsp;Click to enter session</p>
+    </div>
+  </div>
+
+  <!-- Tweaks anchor -->
+  <div id="tweaks-root"></div>
+
+  <!-- Three.js -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Sim parameters (tweakable). Single source of truth. -->
+  <script>
+    window.__simParams = /*EDITMODE-BEGIN*/{
+      "timeOfDay": 17.5,
+      "weather": "clear",
+      "trafficDensity": 60,
+      "pedDensity": 55,
+      "walkSpeed": 1.4,
+      "paused": true,
+      "autoWalk": false,
+      "showHeatmap": false,
+      "showConflicts": true,
+      "viewMode": "subject",
+      "ambientAudio": true,
+      "hudReticle": true,
+      "hudMinimap": true,
+      "hudBio": true,
+      "hudGaze": true,
+      "hudSafety": true
+    }/*EDITMODE-END*/;
+  </script>
+
+  <!-- Sim + HUD scripts -->
+  <script src="sim.js"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="hud.jsx"></script>
+</body>
+</html>
